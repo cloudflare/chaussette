@@ -3,7 +3,12 @@ name = "chausette"
 version = "0.1.0"
 edition = "2021"
 authors = ["pmendes@cloudflare.com", "fisher@cloudflare.com", "aramine@cloudflare.com", "snewton@cloudflare.com"]
-publish = false
+description = "SOCKS5 to HTTP CONNECT Proxy"
+documentation = "https://github.com/cloudflare/chausette/blob/main/README.md"
+readme = "README.md"
+repository = "https://github.com/cloudflare/chausette"
+license = "Apache-2.0"
+license-file = "LICENSE"
 
 [dependencies]
 anyhow = "1.0.95"
