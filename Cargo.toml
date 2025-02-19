@@ -1,11 +1,8 @@
-[workspace]
-members = ["integration-tests"]
-
 [package]
-name = "socks5-to-connect"
+name = "chausette"
 version = "0.1.0"
 edition = "2021"
-authors = ["pmendes@cloudflare.com", "fisher@cloudflare.com", "aramine@cloudflare.com"]
+authors = ["pmendes@cloudflare.com", "fisher@cloudflare.com", "aramine@cloudflare.com", "snewton@cloudflare.com"]
 publish = false
 
 [dependencies]

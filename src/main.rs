@@ -13,7 +13,7 @@
 //limitations under the License.
 
 use clap::Parser;
-use socks5_to_connect::{start, Config};
+use chausette::{start, Config};
 use url::Url;
 
 #[derive(Debug, Parser)]
