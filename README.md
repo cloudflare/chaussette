@@ -1,6 +1,6 @@
 # Chaussette
 
-Chaussette is a proxy which takes SOCKS5 requests and proxies them to to CONNECT 
+Chaussette is a proxy which takes SOCKS5 requests and proxies them to CONNECT 
 over HTTP. It is designed for use with [Cloudflare](https://cloudflare.com) 
 services which support 
 [CONNECT over HTTP](https://www.rfc-editor.org/rfc/rfc9110#section-9.3.6) 
