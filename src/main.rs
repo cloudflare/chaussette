@@ -13,7 +13,7 @@
 //limitations under the License.
 
 use clap::Parser;
-use chausette::{start, Config};
+use chaussette::{start, Config};
 use url::Url;
 
 #[derive(Debug, Parser)]

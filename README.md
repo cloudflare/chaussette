@@ -1,14 +1,14 @@
-# Chausette
+# Chaussette
 
-Chausette is a proxy which takes SOCKS5 requests and proxies them to to CONNECT 
+Chaussette is a proxy which takes SOCKS5 requests and proxies them to to CONNECT 
 over HTTP. It is designed for use with [Cloudflare](https://cloudflare.com) 
 services which support 
 [CONNECT over HTTP](https://www.rfc-editor.org/rfc/rfc9110#section-9.3.6) 
 such as the [Privacy Edge proxies](https://www.cloudflare.com/en-gb/lp/privacy-edge/). 
-Chausette will also allow the passing of a 
+Chaussette will also allow the passing of a 
 [GeoHash hint](https://www.ietf.org/archive/id/draft-geohash-hint-00.html)
 which will instruct the Cloudflare privacy proxy into which geography the 
-requests proxied by Chausette should egress. 
+requests proxied by Chaussette should egress. 
 
 
 Getting Started
