@@ -14,11 +14,16 @@ requests proxied by Chaussette should egress.
 Getting Started
 ---------------
 
-The proxy takes in some configuration from the command line. Environment 
-Variables can also be use in place of command line options
+The proxy takes in some configuration from the command line, and some configuration
+from Environent Variables. 
 
+Usage
+```
+chaussette [OPTIONS] --listen-addr <LISTEN_ADDR> [MASQUE_PRESHARED_KEY] [CLIENT_CERT] [CLIENT_KEY]
+```
 
-To run with a Preshared Key passed as an Environment Variable:
+To run with a Preshared Key with no mTLS listneing on port 1987 and presenting the 
+Geohash xn76cvs0-JP:
 
 ```
 MASQUE_PRESHARED_KEY=1234 cargo run -- --listen 127.0.0.1:1987 --proxy 
@@ -27,6 +32,11 @@ https://host.of.proxy:443 --geohash xn76cvs0-JP
 
 Switches
 --------
+```
+--help
+```
+Prints the help file
+
 ```
 --listen
 ```
@@ -50,26 +60,29 @@ The timeout value of a request, specified in seconds.
 Defaults to 0 (inherit timeout from upstream)
 
 ```
---masque_preshared_key
+--proxy_ca
+```
+If set, do not use the system CA trust store and specify a file in PEM format
+containing a `proxy` CA to trust, 
+
+Environment Variables
+---------------------
+
+```
+MASQUE_PRESHARED_KEY
 ```
 If set, chaussette will supply `Proxy-Authorization: Preshared VALUE` on any HTTP 
 request to the `proxy`. It can also be set using the `MASQUE_PRESHARED_KEY` env var.
 
 ```
---proxy_ca
-```
-If set, do not use the system CA trust store and specify a `proxy` CA to trust. 
-
-```
---client_cert
+CLIENT_CERT
 ```
 If mutual TLS is used to authenticate to the `proxy` this specifies the client_cert 
-to present on the CONNECT request. It can also be  set using the `CLIENT_CERT` env 
-var containing the PEM certificate data. 
+to present on the CONNECT request. The Env Var should be populated with the PEM data
 
 ```
---client_key 
+CLIENT_KEY
 ```
 If mutual TLS is used to authenticate to the `proxy` this specifies the key to use 
-for the certificate contained in `client_cert`. It can also be set using the 
-`CLIENT_KEY` env var containing the PEM key data. 
+for the certificate contained in `CLIENT_CERT`. The Env Var should be populated with 
+the PEM data
