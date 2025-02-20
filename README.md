@@ -68,7 +68,7 @@ to present on the CONNECT request. It can also be  set using the `CLIENT_CERT` e
 var containing the PEM certificate data. 
 
 ```
---client-key 
+--client_key 
 ```
 If mutual TLS is used to authenticate to the `proxy` this specifies the key to use 
 for the certificate contained in `client_cert`. It can also be set using the 
