@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use anyhow::{anyhow, Context};
+use anyhow::{anyhow, Context as _};
 use boring::pkey::PKey;
 use boring::ssl::{SslConnector, SslMethod};
 use boring::x509::store::X509StoreBuilder;
 use boring::x509::X509;
 use futures_util::future::BoxFuture;
 use http::header::HOST;
+use http::Uri;
 use hyper::{upgrade, Version};
 use hyper_boring::v1::HttpsConnector;
 use hyper_util::client::legacy::connect::HttpConnector;
@@ -30,6 +31,7 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 use std::time::Duration;
 use tokio::io::AsyncWriteExt as _;
 use tokio::net::TcpListener;
@@ -93,28 +95,38 @@ pub fn start_with_listener(
             }
         }
 
-        HttpsConnector::with_connector(http, ssl)?
+        ProxyConnector {
+            inner: HttpsConnector::with_connector(http, ssl)?,
+            proxy: config.proxy.as_str().parse().unwrap(),
+        }
     };
+
+    let client = hyper_util::client::legacy::Builder::new(TokioExecutor::new())
+        .http2_only(true)
+        .build(connector);
 
     let server = socks5_server::Server::new(listener, Arc::new(socks5_server::auth::NoAuth));
 
-    Ok(Box::pin(serve(Arc::new(config), connector, server)))
+    Ok(Box::pin(serve(Arc::new(config), client, server)))
 }
+
+type Client =
+    hyper_util::client::legacy::Client<ProxyConnector, http_body_util::Empty<&'static [u8]>>;
 
 async fn serve(
     opt: Arc<Config>,
-    connector: HttpsConnector<HttpConnector>,
+    client: Client,
     server: socks5_server::Server<()>,
 ) -> anyhow::Result<()> {
     let mut id = 0;
     // Standard TCP accept loop
     while let Ok((conn, peer)) = server.accept().await {
         let opt = Arc::clone(&opt);
-        let connector = connector.clone();
+        let client = client.clone();
 
         task::spawn(
             async move {
-                match serve_socks5(id, conn, opt, connector).await {
+                match serve_socks5(id, conn, opt, client).await {
                     Ok(()) => {}
                     Err(err) => tracing::error!("failed to serve socks5 connect {:#}", &err),
                 }
@@ -126,12 +138,12 @@ async fn serve(
     Ok(())
 }
 
-#[tracing::instrument(skip(socket, opt, connector), fields(geohash, target, scid))]
+#[tracing::instrument(skip(socket, opt, client), fields(geohash, target, scid))]
 async fn serve_socks5(
     id: usize,
     socket: IncomingConnection<(), NeedAuthenticate>,
     opt: Arc<Config>,
-    connector: HttpsConnector<HttpConnector>,
+    client: Client,
 ) -> anyhow::Result<()> {
     let (socket, ()) = socket.authenticate().await.map_err(fst)?;
     let command = socket.wait().await.map_err(fst)?;
@@ -167,34 +179,25 @@ async fn serve_socks5(
         .record("target", &target);
 
     tracing::debug!("proxying over H2");
-    proxy_h2(opt, connector, connect, address, &target).await?;
+    proxy_h2(opt, client, connect, address, &target).await?;
 
     Ok(())
 }
 
 async fn proxy_h2(
-    opt: Arc<Config>,
-    mut connector: HttpsConnector<HttpConnector>,
+    config: Arc<Config>,
+    client: Client,
     connect: Connect<NeedReply>,
     address: socks5_proto::Address,
     target: &str,
 ) -> Result<(), anyhow::Error> {
     let proxy = async {
-        let ssl_stream = connector.call(opt.proxy.to_string().parse().unwrap()).await.map_err(|e| anyhow!("error connect to proxy: {e}"))?;
-        let (mut send_request, connection) = hyper::client::conn::http2::handshake(TokioExecutor::new(), TokioIo::new(ssl_stream)).await?;
-
-        tokio::spawn(async move {
-            if let Err(error) = connection.await {
-                tracing::error!("error running tls connection: {error}");
-            }
-        }.in_current_span());
-
         let mut request = hyper::Request::connect(target)
         .version(Version::HTTP_11)
         .header(HOST.as_str(), target)
-        .header("sec-ch-geohash", &opt.geohash);
+        .header("sec-ch-geohash", &config.geohash);
 
-        if let Some(preshared_key) = &opt.masque_preshared_key {
+        if let Some(preshared_key) = &config.masque_preshared_key {
             request = request.header(
                 "Proxy-Authorization", format!("Preshared {preshared_key}"),
             );
@@ -206,8 +209,10 @@ async fn proxy_h2(
 
         tracing::debug!("sending H2 CONNECT request");
 
-        let response = tokio::time::timeout(Duration::from_secs(opt.request_timeout.unwrap_or(u64::MAX)),send_request
-            .send_request(request))
+        let response = tokio::time::timeout(
+            Duration::from_secs(config.request_timeout.unwrap_or(u64::MAX)),
+            client.request(request)
+        )
             .await.inspect_err(|err| {
                 tracing::error!("CONNECT request timed out: {err}");
             })??;
@@ -255,6 +260,26 @@ async fn proxy_h2(
         .in_current_span()
         .await?;
     Ok(())
+}
+
+#[derive(Clone)]
+struct ProxyConnector {
+    inner: HttpsConnector<HttpConnector>,
+    proxy: Uri,
+}
+
+impl Service<Uri> for ProxyConnector {
+    type Response = <HttpsConnector<HttpConnector> as Service<Uri>>::Response;
+    type Error = <HttpsConnector<HttpConnector> as Service<Uri>>::Error;
+    type Future = <HttpsConnector<HttpConnector> as Service<Uri>>::Future;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, _req: Uri) -> Self::Future {
+        self.inner.call(self.proxy.clone())
+    }
 }
 
 fn fst<A, B>((a, _): (A, B)) -> A {
