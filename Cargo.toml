@@ -24,7 +24,7 @@ socks5-proto = "0.4.1"
 http = "1.2.0"
 http-body-util = "0.1.2"
 hyper = { version = "1", features = ["client", "http2"] }
-hyper-util = { version = "0.1.10", features = ["tokio"] }
+hyper-util = { version = "0.1.10", features = ["client", "client-legacy", "http2", "tokio"] }
 url = "2.5.4"
 tracing = "0.1.41"
 bytes = "1.10.0"
