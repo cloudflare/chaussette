@@ -22,7 +22,7 @@ Usage
 chaussette [OPTIONS] --listen-addr <LISTEN_ADDR> [MASQUE_PRESHARED_KEY] [CLIENT_CERT] [CLIENT_KEY]
 ```
 
-To run with a Preshared Key with no mTLS listneing on port 1987 and presenting the 
+To run with a Preshared Key with no mTLS listening on port 1987 and presenting the 
 Geohash xn76cvs0-JP:
 
 ```
