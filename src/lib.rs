@@ -17,13 +17,13 @@ use boring::pkey::PKey;
 use boring::ssl::{SslConnector, SslMethod};
 use boring::x509::store::X509StoreBuilder;
 use boring::x509::X509;
+use client::ProxyClient;
 use futures_util::future::BoxFuture;
 use http::header::HOST;
-use http::Uri;
 use hyper::{upgrade, Version};
 use hyper_boring::v1::HttpsConnector;
 use hyper_util::client::legacy::connect::HttpConnector;
-use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::rt::TokioIo;
 use socks5_server::connection::connect::state::NeedReply;
 use socks5_server::connection::state::NeedAuthenticate;
 use socks5_server::{Connect, IncomingConnection};
@@ -31,15 +31,15 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
 use std::sync::Arc;
-use std::task::{Context, Poll};
 use std::time::Duration;
 use tokio::io::AsyncWriteExt as _;
 use tokio::net::TcpListener;
 use tokio::task;
-use tower_service::Service;
 use tracing::field::Empty;
 use tracing::{info_span, Instrument};
 use url::Url;
+
+mod client;
 
 pub struct Config {
     pub proxy: Url,
@@ -95,27 +95,19 @@ pub fn start_with_listener(
             }
         }
 
-        ProxyConnector {
-            inner: HttpsConnector::with_connector(http, ssl)?,
-            proxy: config.proxy.as_str().parse().unwrap(),
-        }
+        HttpsConnector::with_connector(http, ssl)?
     };
 
-    let client = hyper_util::client::legacy::Builder::new(TokioExecutor::new())
-        .http2_only(true)
-        .build(connector);
+    let client = ProxyClient::new(connector, config.proxy.as_str().parse().unwrap());
 
     let server = socks5_server::Server::new(listener, Arc::new(socks5_server::auth::NoAuth));
 
     Ok(Box::pin(serve(Arc::new(config), client, server)))
 }
 
-type Client =
-    hyper_util::client::legacy::Client<ProxyConnector, http_body_util::Empty<&'static [u8]>>;
-
 async fn serve(
     opt: Arc<Config>,
-    client: Client,
+    client: ProxyClient,
     server: socks5_server::Server<()>,
 ) -> anyhow::Result<()> {
     let mut id = 0;
@@ -143,7 +135,7 @@ async fn serve_socks5(
     id: usize,
     socket: IncomingConnection<(), NeedAuthenticate>,
     opt: Arc<Config>,
-    client: Client,
+    client: ProxyClient,
 ) -> anyhow::Result<()> {
     let (socket, ()) = socket.authenticate().await.map_err(fst)?;
     let command = socket.wait().await.map_err(fst)?;
@@ -186,7 +178,7 @@ async fn serve_socks5(
 
 async fn proxy_h2(
     config: Arc<Config>,
-    client: Client,
+    client: ProxyClient,
     connect: Connect<NeedReply>,
     address: socks5_proto::Address,
     target: &str,
@@ -260,26 +252,6 @@ async fn proxy_h2(
         .in_current_span()
         .await?;
     Ok(())
-}
-
-#[derive(Clone)]
-struct ProxyConnector {
-    inner: HttpsConnector<HttpConnector>,
-    proxy: Uri,
-}
-
-impl Service<Uri> for ProxyConnector {
-    type Response = <HttpsConnector<HttpConnector> as Service<Uri>>::Response;
-    type Error = <HttpsConnector<HttpConnector> as Service<Uri>>::Error;
-    type Future = <HttpsConnector<HttpConnector> as Service<Uri>>::Future;
-
-    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.inner.poll_ready(cx)
-    }
-
-    fn call(&mut self, _req: Uri) -> Self::Future {
-        self.inner.call(self.proxy.clone())
-    }
 }
 
 fn fst<A, B>((a, _): (A, B)) -> A {
