@@ -1,6 +1,6 @@
 [package]
 name = "chaussette"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["pmendes@cloudflare.com", "fisher@cloudflare.com", "aramine@cloudflare.com", "snewton@cloudflare.com"]
 description = "SOCKS5 to HTTP CONNECT Proxy"
