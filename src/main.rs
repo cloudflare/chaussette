@@ -12,7 +12,7 @@
 //See the License for the specific language governing permissions and
 //limitations under the License.
 
-use chaussette::{start, Config};
+use chaussette::{start, Config, HttpVersion};
 use clap::Parser;
 use url::Url;
 
@@ -27,6 +27,12 @@ pub struct Opt {
 
     #[arg(short, long, default_value_t = String::from("xn76cvs0-JP"))]
     pub geohash: String,
+
+    #[arg(long = "h2", alias = "http2", conflicts_with = "http3")]
+    pub http2: bool,
+
+    #[arg(long = "h3", alias = "http3", conflicts_with = "http2")]
+    pub http3: bool,
 
     /// Request timeout
     #[arg(long = "timeout")]
@@ -59,6 +65,13 @@ async fn main() -> anyhow::Result<()> {
         proxy_ca: opt.proxy_ca,
         client_cert: opt.client_cert,
         client_key: opt.client_key,
+        http_version: if opt.http3 {
+            HttpVersion::H3
+        } else {
+            // h2 is the default so we don't actually need to check the flag
+            // clap already errors if both are set to true
+            HttpVersion::H2
+        },
     };
 
     start(config, &opt.listen_addr).await?.await

@@ -12,34 +12,32 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod h2;
+mod h3;
+
 use anyhow::{anyhow, Context as _};
-use boring::pkey::PKey;
-use boring::ssl::{SslConnector, SslMethod};
-use boring::x509::store::X509StoreBuilder;
-use boring::x509::X509;
-use client::ProxyClient;
+use bytes::Bytes;
 use futures_util::future::BoxFuture;
 use http::header::HOST;
-use hyper::{upgrade, Version};
-use hyper_boring::v1::HttpsConnector;
-use hyper_util::client::legacy::connect::HttpConnector;
-use hyper_util::rt::TokioIo;
+use hyper::Version;
 use socks5_server::connection::connect::state::NeedReply;
 use socks5_server::connection::state::NeedAuthenticate;
 use socks5_server::{Connect, IncomingConnection};
-use std::fs::File;
-use std::io::{self, Read};
-use std::path::Path;
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::AsyncWriteExt as _;
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt as _};
 use tokio::net::TcpListener;
 use tokio::task;
 use tracing::field::Empty;
 use tracing::{info_span, Instrument};
 use url::Url;
 
-mod client;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HttpVersion {
+    H2,
+    H3,
+}
 
 pub struct Config {
     pub proxy: Url,
@@ -49,6 +47,7 @@ pub struct Config {
     pub proxy_ca: Option<String>,
     pub client_cert: Option<String>,
     pub client_key: Option<String>,
+    pub http_version: HttpVersion,
 }
 
 pub async fn start(
@@ -61,58 +60,41 @@ pub async fn start(
 }
 
 pub fn start_with_listener(
-    mut config: Config,
+    config: Config,
     listener: TcpListener,
 ) -> anyhow::Result<BoxFuture<'static, anyhow::Result<()>>> {
     tracing::info!(
         "Listen for socks connections @ {}",
         listener.local_addr().unwrap()
     );
-
-    let connector = {
-        let mut http = HttpConnector::new();
-
-        http.enforce_http(false);
-
-        let mut ssl = SslConnector::builder(SslMethod::tls())?;
-
-        ssl.set_alpn_protos(b"\x02h2")?;
-
-        if let Some(proxy_ca) = &config.proxy_ca {
-            let mut builder = X509StoreBuilder::new()?;
-
-            builder.add_cert(X509::from_pem(&load_file(proxy_ca)?)?)?;
-            ssl.set_verify_cert_store(builder.build())?;
-        }
-
-        match (config.client_cert.take(), config.client_key.take()) {
-            (None, None) => {}
-            (None, Some(_)) => anyhow::bail!("client cert is missing"),
-            (Some(_), None) => anyhow::bail!("client key is missing"),
-            (Some(client_cert), Some(client_key)) => {
-                ssl.set_certificate(&*X509::from_pem(client_cert.as_ref())?)?;
-                ssl.set_private_key(&*PKey::private_key_from_pem(client_key.as_ref())?)?;
-            }
-        }
-
-        HttpsConnector::with_connector(http, ssl)?
-    };
-
-    let client = ProxyClient::new(connector, config.proxy.as_str().parse().unwrap());
-
     let server = socks5_server::Server::new(listener, Arc::new(socks5_server::auth::NoAuth));
 
-    Ok(Box::pin(serve(Arc::new(config), client, server)))
+    Ok(match config.http_version {
+        HttpVersion::H2 => Box::pin(serve::<h2::ProxyClient>(config, server)),
+        HttpVersion::H3 => Box::pin(serve::<h3::ProxyClient>(config, server)),
+    })
 }
 
-async fn serve(
-    opt: Arc<Config>,
-    client: ProxyClient,
+trait ProxyClient: Clone + Send + Sync {
+    async fn new(config: &mut Config) -> anyhow::Result<Self>;
+
+    fn connect(
+        self,
+        request: hyper::Request<http_body_util::Empty<Bytes>>,
+    ) -> impl Future<Output = anyhow::Result<impl AsyncWrite + AsyncRead + Unpin + Send + 'static>> + Send;
+}
+
+#[tracing::instrument(skip(opt, server), fields(scid))]
+async fn serve<C: ProxyClient + 'static>(
+    mut opt: Config,
     server: socks5_server::Server<()>,
 ) -> anyhow::Result<()> {
     let mut id = 0;
     // Standard TCP accept loop
+    let client = C::new(&mut opt).await?;
+    let opt = Arc::new(opt);
     while let Ok((conn, peer)) = server.accept().await {
+        tracing::debug!("accepted a connection");
         let opt = Arc::clone(&opt);
         let client = client.clone();
 
@@ -130,12 +112,12 @@ async fn serve(
     Ok(())
 }
 
-#[tracing::instrument(skip(socket, opt, client), fields(geohash, target, scid))]
+#[tracing::instrument(skip(socket, opt, client), fields(geohash, target))]
 async fn serve_socks5(
     id: usize,
     socket: IncomingConnection<(), NeedAuthenticate>,
     opt: Arc<Config>,
-    client: ProxyClient,
+    client: impl ProxyClient,
 ) -> anyhow::Result<()> {
     let (socket, ()) = socket.authenticate().await.map_err(fst)?;
     let command = socket.wait().await.map_err(fst)?;
@@ -170,61 +152,46 @@ async fn serve_socks5(
         .record("geohash", &opt.geohash)
         .record("target", &target);
 
-    tracing::debug!("proxying over H2");
-    proxy_h2(opt, client, connect, address, &target).await?;
-
+    tracing::debug!("proxying over {:?}", opt.http_version);
+    proxy(opt, client, connect, address, &target).await?;
     Ok(())
 }
 
-async fn proxy_h2(
+async fn proxy<C: ProxyClient>(
     config: Arc<Config>,
-    client: ProxyClient,
+    client: C,
     connect: Connect<NeedReply>,
     address: socks5_proto::Address,
     target: &str,
-) -> Result<(), anyhow::Error> {
-    let proxy = async {
+) -> anyhow::Result<()> {
+    let stream = async {
         let mut request = hyper::Request::connect(target)
-        .version(Version::HTTP_11)
-        .header(HOST.as_str(), target)
-        .header("sec-ch-geohash", &config.geohash);
+            .version(Version::HTTP_11)
+            .header(HOST.as_str(), target)
+            .header("sec-ch-geohash", &config.geohash);
 
         if let Some(preshared_key) = &config.masque_preshared_key {
-            request = request.header(
-                "Proxy-Authorization", format!("Preshared {preshared_key}"),
-            );
+            request = request.header("Proxy-Authorization", format!("Preshared {preshared_key}"));
         }
 
-        let request = request
-            .body(<http_body_util::Empty<&[u8]>>::new())
-            .unwrap();
+        let request = request.body(http_body_util::Empty::new()).unwrap();
 
-        tracing::debug!("sending H2 CONNECT request");
+        tracing::debug!("sending CONNECT request");
 
-        let response = tokio::time::timeout(
+        tokio::time::timeout(
             Duration::from_secs(config.request_timeout.unwrap_or(u64::MAX)),
-            client.request(request)
+            client.connect(request),
         )
-            .await.inspect_err(|err| {
-                tracing::error!("CONNECT request timed out: {err}");
-            })??;
-
-        tracing::info!(headers = ?response.headers(), status = %response.status(), "connected to proxy");
-        anyhow::ensure!(
-            response.status().is_success(),
-            "proxy connection failed with status: {}",
-            response.status()
-        );
-
-        tracing::debug!("upgrading connection");
-        let stream = upgrade::on(response).await?;
-        Ok(stream)
+        .await
+        .inspect_err(|err| {
+            tracing::error!("CONNECT request timed out: {err}");
+        })?
     }
     .instrument(info_span!("connecting to proxy", "scid" = Empty))
     .await;
 
-    let mut stream = match proxy {
-        Ok(stream) => TokioIo::new(stream),
+    let mut stream = match stream {
+        Ok(stream) => stream,
         Err(e) => {
             tracing::error!(error = ?e, "failed to connect to proxy");
             return connect
@@ -240,7 +207,7 @@ async fn proxy_h2(
         .reply(socks5_proto::Reply::Succeeded, address)
         .await
         .map_err(fst)?;
-    tracing::debug!("copying bytes between socks5 connection and H3 CONNECT");
+    tracing::debug!("copying bytes between socks5 connection and upstream CONNECT");
     let (body_read, ready_read) =
         tokio::io::copy_bidirectional(&mut stream, ready.get_mut()).await?;
     tracing::debug!(
@@ -256,12 +223,4 @@ async fn proxy_h2(
 
 fn fst<A, B>((a, _): (A, B)) -> A {
     a
-}
-
-fn load_file<P: AsRef<Path> + Copy>(path: P) -> io::Result<Vec<u8>> {
-    let mut buf = vec![];
-
-    File::open(path).and_then(|mut f| f.read_to_end(&mut buf))?;
-
-    Ok(buf)
 }

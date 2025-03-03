@@ -1,35 +1,118 @@
 [package]
+edition = "2021"
 name = "chaussette"
 version = "0.1.1"
-edition = "2021"
-authors = ["pmendes@cloudflare.com", "fisher@cloudflare.com", "aramine@cloudflare.com", "snewton@cloudflare.com"]
+authors = [
+    "pmendes@cloudflare.com",
+    "fisher@cloudflare.com",
+    "aramine@cloudflare.com",
+    "snewton@cloudflare.com",
+]
+build = false
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
 description = "SOCKS5 to HTTP CONNECT Proxy"
 documentation = "https://github.com/cloudflare/chaussette/blob/main/README.md"
 readme = "README.md"
-repository = "https://github.com/cloudflare/chaussette"
-license = "Apache-2.0"
 license-file = "LICENSE"
+repository = "https://github.com/cloudflare/chaussette"
 
-[dependencies]
-anyhow = "1.0.95"
-boring = "4.3"
-clap = { version = "4.5.29", features = ["derive", "env"] }
-socks5-server = "0.10"
-futures-util = "0.3.31"
-tokio = { version = "1.43.0", features = ["full"] }
-tokio-util = { version = "0.7.13", features = ["io"] }
-hyper-boring = { version = "4.3", features = ["hyper1"] }
-tokio-boring = { version = "4.3" }
-socks5-proto = "0.4.1"
-http = "1.2.0"
-http-body-util = "0.1.2"
-hyper = { version = "1", features = ["client", "http2"] }
-hyper-util = { version = "0.1.10", features = ["client", "client-legacy", "tokio"] }
-url = "2.5.4"
-tracing = "0.1.41"
-bytes = "1.10.0"
-h2 = "0.4.7"
-thiserror = "2.0.11"
-tracing-subscriber = "0.3.19"
-tower = { version = "0.5", features = ["retry"] }
-tower-service = "0.3.3"
+[lib]
+name = "chaussette"
+path = "src/lib.rs"
+
+[[bin]]
+name = "chaussette"
+path = "src/main.rs"
+
+[dependencies.anyhow]
+version = "1.0.95"
+
+[dependencies.boring]
+version = "4.3"
+
+[dependencies.bytes]
+version = "1.10.0"
+
+[dependencies.clap]
+version = "4.5.29"
+features = [
+    "derive",
+    "env",
+]
+
+[dependencies.futures-util]
+version = "0.3.31"
+
+[dependencies.h2]
+version = "0.4.7"
+
+[dependencies.http]
+version = "1.2.0"
+
+[dependencies.http-body]
+version = "1.0.1"
+
+[dependencies.http-body-util]
+version = "0.1.2"
+
+[dependencies.hyper]
+version = "1"
+features = [
+    "client",
+    "http2",
+]
+
+[dependencies.hyper-boring]
+version = "4.3"
+features = ["hyper1"]
+
+[dependencies.hyper-util]
+version = "0.1.10"
+features = [
+    "client",
+    "client-legacy",
+    "tokio",
+]
+
+[dependencies.socks5-proto]
+version = "0.4.1"
+
+[dependencies.socks5-server]
+version = "0.10"
+
+[dependencies.thiserror]
+version = "2.0.11"
+
+[dependencies.tokio]
+version = "1.43.0"
+features = ["full"]
+
+[dependencies.tokio-boring]
+version = "4.3"
+
+[dependencies.tokio-quiche]
+version = "0.2.0"
+
+[dependencies.tokio-util]
+version = "0.7.13"
+features = ["io"]
+
+[dependencies.tower]
+version = "0.5"
+features = ["retry"]
+
+[dependencies.tower-service]
+version = "0.3.3"
+
+[dependencies.tracing]
+version = "0.1.41"
+
+[dependencies.tracing-subscriber]
+version = "0.3.19"
+
+[dependencies.url]
+version = "2.5.4"
