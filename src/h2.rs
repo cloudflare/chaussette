@@ -145,7 +145,7 @@ impl super::ProxyClient for ProxyClient {
                     "Setting happy eyeballs timeout to {} seconds",
                     happy_eyeballs_timeout
                 );
-                http.set_happy_eyeballs_timeout(Some(Duration::from_secs(happy_eyeballs_timeout)));
+                http.set_happy_eyeballs_timeout(Some(Duration::from_millis(happy_eyeballs_timeout)));
             }
 
             let mut ssl = SslConnector::builder(SslMethod::tls())?;
