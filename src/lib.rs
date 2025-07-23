@@ -48,6 +48,7 @@ pub struct Config {
     pub client_cert: Option<String>,
     pub client_key: Option<String>,
     pub http_version: HttpVersion,
+    pub ipv4: bool,
 }
 
 pub async fn start(

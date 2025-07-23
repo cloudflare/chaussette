@@ -11,6 +11,7 @@ use hyper_util::{
     client::legacy::connect::HttpConnector,
     rt::{TokioExecutor, TokioIo},
 };
+use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use tower::{
@@ -133,6 +134,11 @@ impl super::ProxyClient for ProxyClient {
             let mut http = HttpConnector::new();
 
             http.enforce_http(false);
+
+            if config.ipv4 {
+                tracing::info!("force IPv4 mode");
+                http.set_local_address(Some(SocketAddr::from(([0, 0, 0, 0], 0)).ip()));
+            }
 
             let mut ssl = SslConnector::builder(SslMethod::tls())?;
 

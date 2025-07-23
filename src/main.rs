@@ -34,6 +34,9 @@ pub struct Opt {
     #[arg(long = "h3", alias = "http3", conflicts_with = "http2")]
     pub http3: bool,
 
+    #[arg(long = "4")]
+    pub ipv4: bool,
+
     /// Request timeout
     #[arg(long = "timeout")]
     pub request_timeout: Option<u64>,
@@ -72,6 +75,7 @@ async fn main() -> anyhow::Result<()> {
             // clap already errors if both are set to true
             HttpVersion::H2
         },
+        ipv4: opt.ipv4,
     };
 
     start(config, &opt.listen_addr).await?.await
