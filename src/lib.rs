@@ -43,6 +43,7 @@ pub struct Config {
     pub proxy: Url,
     pub geohash: String,
     pub request_timeout: Option<u64>,
+    pub happy_eyeballs_timeout: Option<u64>,
     pub masque_preshared_key: Option<String>,
     pub proxy_ca: Option<String>,
     pub client_cert: Option<String>,

@@ -41,6 +41,9 @@ pub struct Opt {
     #[arg(long = "timeout")]
     pub request_timeout: Option<u64>,
 
+    #[arg(long = "happy-eyeballs-timeout")]
+    pub happy_eyeballs_timeout: Option<u64>,
+
     #[arg(env)]
     pub masque_preshared_key: Option<String>,
 
@@ -64,6 +67,7 @@ async fn main() -> anyhow::Result<()> {
         proxy: opt.proxy,
         geohash: opt.geohash,
         request_timeout: opt.request_timeout,
+        happy_eyeballs_timeout: opt.happy_eyeballs_timeout,
         masque_preshared_key: opt.masque_preshared_key,
         proxy_ca: opt.proxy_ca,
         client_cert: opt.client_cert,
