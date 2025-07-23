@@ -11,7 +11,7 @@ use hyper_util::{
     client::legacy::connect::HttpConnector,
     rt::{TokioExecutor, TokioIo},
 };
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use tower::{
@@ -135,18 +135,22 @@ impl super::ProxyClient for ProxyClient {
 
             http.enforce_http(false);
 
-            if config.ipv4 {
-                tracing::info!("Using IPv4 for proxy connections");
-                http.set_local_address(Some(SocketAddr::from(([0, 0, 0, 0], 0)).ip()));
-            }
+            http.set_connect_timeout(Some(Duration::from_secs(1)));
+            http.set_happy_eyeballs_timeout(None);
+            http.set_local_address(Some(IpAddr::V4(Ipv4Addr::UNSPECIFIED)));
+
+            // if config.ipv4 {
+            //     tracing::info!("Using IPv4 for proxy connections");
+            //     http.set_local_address(Some(SocketAddr::from(([0, 0, 0, 0], 0)).ip()));
+            // }
             
-            if let Some(happy_eyeballs_timeout) = config.happy_eyeballs_timeout {
-                tracing::info!(
-                    "Setting happy eyeballs timeout to {} milliseconds",
-                    happy_eyeballs_timeout
-                );
-                http.set_happy_eyeballs_timeout(Some(Duration::from_millis(happy_eyeballs_timeout)));
-            }
+            // if let Some(happy_eyeballs_timeout) = config.happy_eyeballs_timeout {
+            //     tracing::info!(
+            //         "Setting happy eyeballs timeout to {} milliseconds",
+            //         happy_eyeballs_timeout
+            //     );
+            //     http.set_happy_eyeballs_timeout(Some(Duration::from_millis(happy_eyeballs_timeout)));
+            // }
 
             let mut ssl = SslConnector::builder(SslMethod::tls())?;
 
