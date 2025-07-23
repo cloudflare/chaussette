@@ -142,7 +142,7 @@ impl super::ProxyClient for ProxyClient {
             
             if let Some(happy_eyeballs_timeout) = config.happy_eyeballs_timeout {
                 tracing::info!(
-                    "Setting happy eyeballs timeout to {} seconds",
+                    "Setting happy eyeballs timeout to {} milliseconds",
                     happy_eyeballs_timeout
                 );
                 http.set_happy_eyeballs_timeout(Some(Duration::from_millis(happy_eyeballs_timeout)));
