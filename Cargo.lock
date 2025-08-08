@@ -432,9 +432,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-channel"
-version = "0.5.14"
+version = "0.5.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06ba6d68e24814cb8de6bb986db8222d3a027d15872cabc0d18817bc3c0e4471"
+checksum = "82b8f8f868b36967f9606790d1903570de9ceaf870a7bf9fbbd3016d636a2cb2"
 dependencies = [
  "crossbeam-utils",
 ]
@@ -513,9 +513,9 @@ dependencies = [
 
 [[package]]
 name = "datagram-socket"
-version = "0.1.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2033720ed4ce1acc3cbec30b9103d3d0f7aefbb447dbdf0c7d894256dd8835bd"
+checksum = "499a59f4b840b50f33b198e14b246f2f9ad9e93aa8da20da12c4b9200d25f963"
 dependencies = [
  "buffer-pool",
  "futures-util",
@@ -523,6 +523,12 @@ dependencies = [
  "smallvec",
  "tokio",
 ]
+
+[[package]]
+name = "debug_panic"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9377eb110cece2e9431deb8d7d2ec8c116510b896741f9f2bf02b352147aa2a6"
 
 [[package]]
 name = "deranged"
@@ -577,6 +583,18 @@ name = "either"
 version = "1.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "60b1af1c220855b6ceac025d3f6ecdd2b7c4894bfe9cd9bda4fbb4bc7c0d4cf0"
+
+[[package]]
+name = "enum_dispatch"
+version = "0.3.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa18ce2bc66555b3218614519ac839ddb759a7d6720732f979ef8d13be147ecd"
+dependencies = [
+ "once_cell",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.98",
+]
 
 [[package]]
 name = "equivalent"
@@ -1261,6 +1279,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "io-uring"
+version = "0.7.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d93587f37623a1a17d94ef2bc9ada592f5465fe7732084ab7beefabe5c77c0c4"
+dependencies = [
+ "bitflags 2.8.0",
+ "cfg-if",
+ "libc",
+]
+
+[[package]]
 name = "ipnetwork"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1842,9 +1871,9 @@ dependencies = [
 
 [[package]]
 name = "qlog"
-version = "0.15.0"
+version = "0.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e085f7a6aa9404a6a6a80e9c39a598594086fa23415dbcb6add375c19ba6f89"
+checksum = "0f15b83c59e6b945f2261c95a1dd9faf239187f32ff0a96af1d1d28c4557f919"
 dependencies = [
  "serde",
  "serde_json",
@@ -1869,13 +1898,15 @@ dependencies = [
 
 [[package]]
 name = "quiche"
-version = "0.23.2"
+version = "0.24.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05b8b0671dd089bcc628e78dedc5890929684b05297e67fd34fc74292e6e4520"
+checksum = "88fa45f0d2e3fc7ca8b4306408f8b15df9a3b5ac70197f84dfc6ebf58fb7e26a"
 dependencies = [
  "boring",
  "cmake",
+ "debug_panic",
  "either",
+ "enum_dispatch",
  "foreign-types-shared",
  "intrusive-collections",
  "libc",
@@ -2444,17 +2475,19 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "1.43.0"
+version = "1.46.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d61fa4ffa3de412bfea335c6ecff681de2b609ba3c77ef3e00e521813a9ed9e"
+checksum = "0cc3a2344dafbe23a245241fe8b09735b521110d30fcefbbd5feb1797ca35d17"
 dependencies = [
  "backtrace",
  "bytes",
+ "io-uring",
  "libc",
  "mio",
  "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
+ "slab",
  "socket2",
  "tokio-macros",
  "windows-sys 0.52.0",
@@ -2485,10 +2518,11 @@ dependencies = [
 
 [[package]]
 name = "tokio-quiche"
-version = "0.2.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71403c2aa1d28ee99fdd7e99f836c44bf7ca03649bcbb28bb9d78c4685682a94"
+checksum = "8b802ce2d36505e2d92a8f2625259de9249f4c23e2507428d043deb33263d12e"
 dependencies = [
+ "anyhow",
  "boring",
  "buffer-pool",
  "crossbeam",
