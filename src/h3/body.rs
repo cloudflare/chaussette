@@ -30,7 +30,7 @@ pub enum H3WriteError {
 
 impl From<H3WriteError> for io::Error {
     fn from(value: H3WriteError) -> Self {
-        io::Error::new(io::ErrorKind::Other, value)
+        io::Error::other(value)
     }
 }
 

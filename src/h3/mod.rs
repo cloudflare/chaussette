@@ -37,6 +37,7 @@ impl ProxyClient {
 
         let socket = tokio::net::UdpSocket::bind(bind_addr).await?;
         socket.connect(peer_addr).await?;
+        let socket = tokio_quiche::socket::Socket::try_from(socket)?;
 
         let host = url.host_str();
         let (h3_driver, h3_driver_channel) = ClientH3Driver::new(Http3Settings::default());
