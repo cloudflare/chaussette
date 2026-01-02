@@ -1,3 +1,4 @@
+use anyhow::Context as _;
 use boring::{
     pkey::PKey,
     ssl::{SslConnector, SslMethod},
@@ -65,11 +66,11 @@ impl ProxyClient {
         self.tx
             .send((req, tx))
             .await
-            .map_err(|_e| anyhow::anyhow!("proxy client connection closed"))?;
+            .context("proxy client connection closed")?;
 
         rx.await
-            .map_err(|_e| anyhow::anyhow!("proxy response channel closed"))?
-            .map_err(|e| anyhow::anyhow!("proxy request failed: {}", e))
+            .context("proxy response channel closed")?
+            .context("proxy request failed")
     }
 }
 
