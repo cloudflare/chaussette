@@ -59,12 +59,17 @@ impl ProxyClient {
     pub(crate) async fn request(
         &self,
         req: Request<http_body_util::Empty<bytes::Bytes>>,
-    ) -> hyper::Result<Response<Incoming>> {
+    ) -> anyhow::Result<Response<Incoming>> {
         let (tx, rx) = oneshot::channel();
 
-        self.tx.send((req, tx)).await.unwrap();
+        self.tx
+            .send((req, tx))
+            .await
+            .map_err(|_e| anyhow::anyhow!("proxy client connection closed"))?;
 
-        rx.await.unwrap()
+        rx.await
+            .map_err(|_e| anyhow::anyhow!("proxy response channel closed"))?
+            .map_err(|e| anyhow::anyhow!("proxy request failed: {}", e))
     }
 }
 

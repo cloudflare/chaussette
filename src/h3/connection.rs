@@ -99,7 +99,7 @@ impl Connection {
                     None => return Ok(()), // The sender was dropped, implying connection was terminated
                 },
                 Some(request) = self.client_req_receiver.recv() => {
-                    self.handle_client_req(request)
+                    self.handle_client_req(request)?;
                 }
                 Some(shutdown_request) = self.client_shutdown_receiver.recv() => {
                     tracing::debug!("Sending client-requested shutdown request={shutdown_request:?} to the H3 Controller");
@@ -153,7 +153,7 @@ impl Connection {
                 state
                     .peer_settings
                     .set(settings)
-                    .expect("settings should only change once");
+                    .map_err(|_| anyhow::anyhow!("settings already set - received duplicate settings from peer"))?;
                 Ok(())
             }
 
@@ -180,8 +180,7 @@ impl Connection {
                     return Ok(());
                 };
 
-                let res = h3_response_to_hyper_response(headers)
-                    .expect("unable to create hyper response");
+                let res = h3_response_to_hyper_response(headers)?;
 
                 let h3_body = H3Body::new(stream_id, send.clone(), Some(recv), read_fin);
 
@@ -206,7 +205,7 @@ impl Connection {
 
     /// Receives a [ClientRequest] from the user-facing task and forwards it into the
     /// [Connection]'s underlying H3Driver for processing.
-    fn handle_client_req(&mut self, client_request: ClientRequest) {
+    fn handle_client_req(&mut self, client_request: ClientRequest) -> anyhow::Result<()> {
         use std::sync::atomic::{AtomicU64, Ordering};
 
         static REQUEST_ID: AtomicU64 = AtomicU64::new(0);
@@ -225,26 +224,32 @@ impl Connection {
         let body_writer = (is_connect || has_body).then_some(body_writer_tx);
 
         // Send the request into the H3Driver for processing
-        self.new_request_sender
+        if let Err(e) = self.new_request_sender
             .send(NewClientRequest {
                 request_id,
                 headers,
                 body_writer,
-            })
-            .expect("unable to send new client request to IO worker");
+            }) {
+            return Err(anyhow::anyhow!("unable to send new client request to IO worker: {:?}", e));
+        }
 
         self.pending_requests
             .insert(request_id, PendingRequest { response });
 
         if has_body {
             tokio::spawn(async move {
-                let h3_body = body_writer_rx
-                    .await
-                    .expect("unable to get writer for client body");
-
-                tokio::spawn(send_hyper_body(body, h3_body));
+                match body_writer_rx.await {
+                    Ok(h3_body) => {
+                        tokio::spawn(send_hyper_body(body, h3_body));
+                    }
+                    Err(e) => {
+                        tracing::error!("unable to get writer for client body: {:?}", e);
+                    }
+                }
             });
         }
+
+        Ok(())
     }
 }
 
