@@ -174,8 +174,8 @@ async fn proxy<C: ProxyClient>(
             request = request.header("Proxy-Authorization", format!("Preshared {preshared_key}"));
         }
 
-        let request = request.body(http_body_util::Empty::new())
-            .map_err(|e| anyhow!("failed to create request: {e}"))?;
+        let request =  request.body(http_body_util::Empty::new())
+            .context("failed to create request")?;
 
         tracing::debug!("sending CONNECT request");
 
