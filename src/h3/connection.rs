@@ -134,6 +134,12 @@ impl Connection {
             // Received an explicit connection level error.
             H3Event::ConnectionError(err) => QuicResult::Err(Box::new(err)),
 
+            // Received a GOAWAY frame. Return an error so we stop sending new
+            // requests, but existing tunnels continue running.
+            // This matches the behavior of older tokio-quiche versions that
+            // generated an error internally.
+            H3Event::GoAway { .. } => Err(anyhow::anyhow!("goaway").into()),
+
             // If the connection's been shut down, we're done
             H3Event::ConnectionShutdown(_) => QuicResult::Err(Box::new(quiche::Error::Done)),
 
@@ -150,10 +156,9 @@ impl Connection {
 
             // Received connection settings
             H3Event::IncomingSettings { settings } => {
-                state
-                    .peer_settings
-                    .set(settings)
-                    .map_err(|_| anyhow::anyhow!("settings already set - received duplicate settings from peer"))?;
+                state.peer_settings.set(settings).map_err(|_| {
+                    anyhow::anyhow!("settings already set - received duplicate settings from peer")
+                })?;
                 Ok(())
             }
 
@@ -224,13 +229,15 @@ impl Connection {
         let body_writer = (is_connect || has_body).then_some(body_writer_tx);
 
         // Send the request into the H3Driver for processing
-        if let Err(e) = self.new_request_sender
-            .send(NewClientRequest {
-                request_id,
-                headers,
-                body_writer,
-            }) {
-            return Err(anyhow::anyhow!("unable to send new client request to IO worker: {:?}", e));
+        if let Err(e) = self.new_request_sender.send(NewClientRequest {
+            request_id,
+            headers,
+            body_writer,
+        }) {
+            return Err(anyhow::anyhow!(
+                "unable to send new client request to IO worker: {:?}",
+                e
+            ));
         }
 
         self.pending_requests

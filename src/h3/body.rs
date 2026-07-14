@@ -1,4 +1,4 @@
-use bytes::Bytes;
+use bytes::{BufMut, Bytes, BytesMut};
 use futures_util::{SinkExt, StreamExt};
 use http_body::Body;
 use http_body_util::BodyDataStream;
@@ -8,7 +8,7 @@ use std::task::{Context, Poll};
 use std::{fmt, io};
 use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio_quiche::buf_factory::{BufFactory, PooledBuf};
+use tokio_quiche::buf_factory::BufFactory;
 use tokio_quiche::http3::driver::{
     InboundFrame, InboundFrameStream, OutboundFrame, OutboundFrameSender,
 };
@@ -48,7 +48,7 @@ pub struct H3Body {
     recv: Option<InboundFrameStream>,
 
     /// A frame already queued from recv
-    pending_recv: Option<(PooledBuf, bool)>,
+    pending_recv: Option<(BytesMut, bool)>,
 }
 
 impl H3Body {
@@ -100,7 +100,7 @@ impl H3Body {
             // Only send fin with the last chunk
             let fin = (sent.unwrap_or_default() + chunk.len() == buf.len()) && fin;
 
-            let body = OutboundFrame::body(BufFactory::buf_from_slice(chunk), fin);
+            let body = OutboundFrame::Body(Bytes::copy_from_slice(chunk), fin);
 
             match self.send.send_item(body) {
                 Ok(()) => {
@@ -129,12 +129,12 @@ impl H3Body {
 
                 let capacity = buf.remaining();
                 if pending.len() > capacity {
-                    buf.put_slice(&pending[..capacity]);
-                    pending.pop_front(capacity);
+                    let to_read = pending.split_to(capacity);
+                    buf.put(to_read);
                     return Poll::Ready(Ok(()));
                 }
 
-                buf.put_slice(pending);
+                buf.put(pending);
                 self.pending_recv.take();
                 did_read = true;
                 self.read_fin |= fin;
@@ -227,11 +227,12 @@ where
 
     while let Some(maybe_chunk) = body_stream.next().await {
         match maybe_chunk {
-            Ok(chunk) => {
-                for chunk in chunk.chunks(BufFactory::MAX_BUF_SIZE) {
+            Ok(mut chunk) => {
+                while !chunk.is_empty() {
                     // Is it too many levels of chunking?
-                    let chunk = OutboundFrame::body(BufFactory::buf_from_slice(chunk), false);
-                    frame_sender.send(chunk).await.ok()?;
+                    let len = chunk.len().min(BufFactory::MAX_BUF_SIZE);
+                    let sub_chunk = OutboundFrame::Body(chunk.split_to(len), false);
+                    frame_sender.send(sub_chunk).await.ok()?;
                 }
             }
             Err(error) => {
@@ -248,7 +249,7 @@ where
         }
     }
 
-    let fin_chunk = OutboundFrame::body(BufFactory::get_empty_buf(), true);
+    let fin_chunk = OutboundFrame::Body(Bytes::new(), true);
     frame_sender.send(fin_chunk).await.ok()?;
 
     Some(())
