@@ -33,23 +33,60 @@ use tracing::field::Empty;
 use tracing::{info_span, Instrument};
 use url::Url;
 
+/// Selects the HTTP version used to connect to the upstream proxy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HttpVersion {
+    /// Use a shared HTTP/2 connection for CONNECT requests.
     H2,
+
+    /// Use HTTP/3 for CONNECT requests.
     H3,
 }
 
-pub struct Config {
-    pub proxy: Url,
-    pub geohash: String,
-    pub request_timeout: Option<u64>,
-    pub masque_preshared_key: Option<String>,
-    pub proxy_ca: Option<String>,
-    pub client_cert: Option<String>,
-    pub client_key: Option<String>,
-    pub http_version: HttpVersion,
+/// Configures HTTP/2 PING keepalive and eager recovery of the shared proxy connection.
+///
+/// When configured, Chaussette sends PING frames even while the connection is idle and
+/// immediately reconnects when the connection closes or fails its keepalive check.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Http2KeepAliveConfig {
+    /// Time between HTTP/2 PING frames.
+    pub interval: Duration,
+
+    /// Maximum time to wait for a PING acknowledgement before closing the connection.
+    pub timeout: Duration,
 }
 
+/// Configures the local SOCKS5 server and its upstream proxy connection.
+pub struct Config {
+    /// Upstream CONNECT proxy URL.
+    pub proxy: Url,
+
+    /// Geohash hint sent with upstream CONNECT requests.
+    pub geohash: String,
+
+    /// Maximum time in seconds to wait for an upstream CONNECT response.
+    pub request_timeout: Option<u64>,
+
+    /// Preshared key sent to the upstream proxy when configured.
+    pub masque_preshared_key: Option<String>,
+
+    /// PEM file containing a CA certificate used to verify the upstream proxy.
+    pub proxy_ca: Option<String>,
+
+    /// PEM client certificate used for mutual TLS with the upstream proxy.
+    pub client_cert: Option<String>,
+
+    /// PEM private key used for mutual TLS with the upstream proxy.
+    pub client_key: Option<String>,
+
+    /// HTTP version used for upstream CONNECT requests.
+    pub http_version: HttpVersion,
+
+    /// Optional HTTP/2 keepalive settings that also enable eager connection recovery.
+    pub http2_keepalive: Option<Http2KeepAliveConfig>,
+}
+
+/// Starts Chaussette on a newly bound TCP listener.
 pub async fn start(
     config: Config,
     listen_addr: &str,
@@ -59,10 +96,16 @@ pub async fn start(
     start_with_listener(config, listener)
 }
 
+/// Starts Chaussette with an existing TCP listener.
 pub fn start_with_listener(
     config: Config,
     listener: TcpListener,
 ) -> anyhow::Result<BoxFuture<'static, anyhow::Result<()>>> {
+    anyhow::ensure!(
+        config.http_version == HttpVersion::H2 || config.http2_keepalive.is_none(),
+        "HTTP/2 keepalive cannot be configured when HTTP/3 is selected"
+    );
+
     tracing::info!(
         "Listen for socks connections @ {}",
         listener.local_addr().unwrap()

@@ -12,8 +12,9 @@
 //See the License for the specific language governing permissions and
 //limitations under the License.
 
-use chaussette::{start, Config, HttpVersion};
+use chaussette::{start, Config, Http2KeepAliveConfig, HttpVersion};
 use clap::Parser;
+use std::time::Duration;
 use url::Url;
 
 #[derive(Debug, Parser)]
@@ -37,6 +38,24 @@ pub struct Opt {
     /// Request timeout
     #[arg(long = "timeout")]
     pub request_timeout: Option<u64>,
+
+    /// Seconds between HTTP/2 PING frames. Requires --http2-keepalive-timeout.
+    #[arg(
+        long = "http2-keepalive-interval",
+        requires = "http2_keepalive_timeout",
+        conflicts_with = "http3",
+        value_parser = clap::value_parser!(u64).range(1..)
+    )]
+    pub http2_keepalive_interval: Option<u64>,
+
+    /// Seconds to wait for an HTTP/2 PING acknowledgement. Requires --http2-keepalive-interval.
+    #[arg(
+        long = "http2-keepalive-timeout",
+        requires = "http2_keepalive_interval",
+        conflicts_with = "http3",
+        value_parser = clap::value_parser!(u64).range(1..)
+    )]
+    pub http2_keepalive_timeout: Option<u64>,
 
     #[arg(env)]
     pub masque_preshared_key: Option<String>,
@@ -72,7 +91,53 @@ async fn main() -> anyhow::Result<()> {
             // clap already errors if both are set to true
             HttpVersion::H2
         },
+        http2_keepalive: match (opt.http2_keepalive_interval, opt.http2_keepalive_timeout) {
+            (None, None) => None,
+            (Some(interval), Some(timeout)) => Some(Http2KeepAliveConfig {
+                interval: Duration::from_secs(interval),
+                timeout: Duration::from_secs(timeout),
+            }),
+            (Some(_), None) | (None, Some(_)) => {
+                unreachable!("clap requires both HTTP/2 keepalive options")
+            }
+        },
     };
 
     start(config, &opt.listen_addr).await?.await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Opt;
+    use clap::Parser;
+
+    #[test]
+    fn parses_complete_http2_keepalive_configuration() {
+        let options = Opt::try_parse_from([
+            "chaussette",
+            "--listen-addr",
+            "127.0.0.1:1080",
+            "--http2-keepalive-interval",
+            "10",
+            "--http2-keepalive-timeout",
+            "5",
+        ])
+        .unwrap();
+
+        assert_eq!(options.http2_keepalive_interval, Some(10));
+        assert_eq!(options.http2_keepalive_timeout, Some(5));
+    }
+
+    #[test]
+    fn rejects_partial_http2_keepalive_configuration() {
+        let result = Opt::try_parse_from([
+            "chaussette",
+            "--listen-addr",
+            "127.0.0.1:1080",
+            "--http2-keepalive-interval",
+            "10",
+        ]);
+
+        assert!(result.is_err());
+    }
 }

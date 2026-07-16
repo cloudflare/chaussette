@@ -57,7 +57,21 @@ The Geohash to supply with any requests
 --timeout
 ```
 The timeout value of a request, specified in seconds. 
-Defaults to 0 (inherit timeout from upstream)
+If omitted, Chaussette does not impose a local request timeout.
+
+```
+--http2-keepalive-interval
+```
+The number of seconds between HTTP/2 PING frames. Supplying this option together
+with `--http2-keepalive-timeout` enables keepalive while idle and eager recovery
+of the shared HTTP/2 proxy connection.
+
+```
+--http2-keepalive-timeout
+```
+The number of seconds to wait for an HTTP/2 PING acknowledgement before closing
+and eagerly re-establishing the shared proxy connection. This option requires
+`--http2-keepalive-interval`.
 
 ```
 --proxy_ca
