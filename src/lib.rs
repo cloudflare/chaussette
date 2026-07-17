@@ -43,17 +43,31 @@ pub enum HttpVersion {
     H3,
 }
 
-/// Configures HTTP/2 PING keepalive and eager recovery of the shared proxy connection.
+/// Configures HTTP/2 PING keepalive for the shared proxy connection.
 ///
-/// When configured, Chaussette sends PING frames even while the connection is idle and
-/// immediately reconnects when the connection closes or fails its keepalive check.
+/// Chaussette eagerly establishes and recovers the shared HTTP/2 connection. When
+/// `enabled` is true, it also sends PING frames while the connection is idle so a
+/// broken connection can be detected before the next SOCKS request arrives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Http2KeepAliveConfig {
+    /// Whether to send HTTP/2 PING frames.
+    pub enabled: bool,
+
     /// Time between HTTP/2 PING frames.
     pub interval: Duration,
 
     /// Maximum time to wait for a PING acknowledgement before closing the connection.
     pub timeout: Duration,
+}
+
+impl Default for Http2KeepAliveConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            interval: Duration::from_secs(30),
+            timeout: Duration::from_secs(10),
+        }
+    }
 }
 
 /// Configures the local SOCKS5 server and its upstream proxy connection.
@@ -82,8 +96,8 @@ pub struct Config {
     /// HTTP version used for upstream CONNECT requests.
     pub http_version: HttpVersion,
 
-    /// Optional HTTP/2 keepalive settings that also enable eager connection recovery.
-    pub http2_keepalive: Option<Http2KeepAliveConfig>,
+    /// HTTP/2 keepalive settings for the shared proxy connection.
+    pub http2_keepalive: Http2KeepAliveConfig,
 }
 
 /// Starts Chaussette on a newly bound TCP listener.
@@ -102,8 +116,8 @@ pub fn start_with_listener(
     listener: TcpListener,
 ) -> anyhow::Result<BoxFuture<'static, anyhow::Result<()>>> {
     anyhow::ensure!(
-        config.http_version == HttpVersion::H2 || config.http2_keepalive.is_none(),
-        "HTTP/2 keepalive cannot be configured when HTTP/3 is selected"
+        config.http_version == HttpVersion::H2 || !config.http2_keepalive.enabled,
+        "HTTP/2 keepalive cannot be enabled when HTTP/3 is selected"
     );
 
     tracing::info!(

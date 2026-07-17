@@ -30,37 +30,25 @@ impl ProxyClient {
     pub(crate) fn new(
         mut connector: HttpsConnector<HttpConnector>,
         proxy: Uri,
-        keepalive: Option<crate::Http2KeepAliveConfig>,
+        keepalive: crate::Http2KeepAliveConfig,
     ) -> Self {
         let (tx, mut rx) = mpsc::channel(64);
 
         let client = Self { tx };
 
         tokio::spawn(async move {
-            let mut proxy_connection = match keepalive {
-                Some(_) => Some(connect_with_retry(&mut connector, proxy.clone(), keepalive).await),
-                None => None,
-            };
+            let mut proxy_connection =
+                connect_with_retry(&mut connector, proxy.clone(), keepalive).await;
 
             loop {
-                let request = if keepalive.is_some() {
-                    let closed = &mut proxy_connection
-                        .as_mut()
-                        .expect("eager recovery maintains a proxy connection")
-                        .closed;
-
-                    tokio::select! {
-                        request = rx.recv() => request,
-                        _ = closed => {
-                            tracing::info!("proxy connection is closed, reconnecting eagerly");
-                            proxy_connection = Some(
-                                connect_with_retry(&mut connector, proxy.clone(), keepalive).await,
-                            );
-                            continue;
-                        }
+                let request = tokio::select! {
+                    request = rx.recv() => request,
+                    _ = &mut proxy_connection.closed => {
+                        tracing::info!("proxy connection is closed, reconnecting eagerly");
+                        proxy_connection =
+                            connect_with_retry(&mut connector, proxy.clone(), keepalive).await;
+                        continue;
                     }
-                } else {
-                    rx.recv().await
                 };
 
                 let Some((request, mut response_sender)) = request else {
@@ -125,37 +113,24 @@ struct ProxyConnection {
 async fn get_proxy_connection<'c>(
     connector: &mut HttpsConnector<HttpConnector>,
     proxy: Uri,
-    proxy_connection: &'c mut Option<ProxyConnection>,
-    keepalive: Option<crate::Http2KeepAliveConfig>,
+    proxy_connection: &'c mut ProxyConnection,
+    keepalive: crate::Http2KeepAliveConfig,
 ) -> &'c mut ProxyConnection {
-    let connection_is_ready = match proxy_connection.as_mut() {
-        Some(connection) => match connection.request_sender.ready().await {
-            Ok(()) => true,
-            Err(e) => {
-                tracing::info!(error = ?e, "old proxy connection is closed, reconnecting");
-                false
-            }
-        },
-        None => {
-            tracing::info!(proxy = ?proxy, "establishing initial connection");
-            false
+    match proxy_connection.request_sender.ready().await {
+        Ok(()) => return proxy_connection,
+        Err(e) => {
+            tracing::info!(error = ?e, "old proxy connection is closed, reconnecting");
         }
-    };
-
-    if connection_is_ready {
-        return proxy_connection
-            .as_mut()
-            .expect("ready proxy connection remains available");
     }
 
-    *proxy_connection = None;
-    proxy_connection.insert(connect_with_retry(connector, proxy, keepalive).await)
+    *proxy_connection = connect_with_retry(connector, proxy, keepalive).await;
+    proxy_connection
 }
 
 async fn connect_with_retry(
     connector: &mut HttpsConnector<HttpConnector>,
     proxy: Uri,
-    keepalive: Option<crate::Http2KeepAliveConfig>,
+    keepalive: crate::Http2KeepAliveConfig,
 ) -> ProxyConnection {
     let mut exponential_backoff = ExponentialBackoffMaker::new(
         Duration::from_millis(200),
@@ -181,7 +156,7 @@ async fn connect_with_retry(
 async fn connect(
     connector: &mut HttpsConnector<HttpConnector>,
     proxy: Uri,
-    keepalive: Option<crate::Http2KeepAliveConfig>,
+    keepalive: crate::Http2KeepAliveConfig,
 ) -> Result<ProxyConnection, BoxError> {
     let stream = connector.call(proxy).await?;
 
@@ -190,14 +165,14 @@ async fn connect(
 
 async fn handshake_proxy_connection<T>(
     stream: T,
-    keepalive: Option<crate::Http2KeepAliveConfig>,
+    keepalive: crate::Http2KeepAliveConfig,
 ) -> Result<ProxyConnection, BoxError>
 where
     T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let mut builder = hyper::client::conn::http2::Builder::new(TokioExecutor::new());
 
-    if let Some(keepalive) = keepalive {
+    if keepalive.enabled {
         builder
             .timer(TokioTimer::new())
             .keep_alive_interval(keepalive.interval)
@@ -225,16 +200,14 @@ where
 
 impl super::ProxyClient for ProxyClient {
     async fn new(config: &mut crate::Config) -> anyhow::Result<Self> {
-        if let Some(keepalive) = config.http2_keepalive {
-            anyhow::ensure!(
-                keepalive.interval > Duration::ZERO,
-                "HTTP/2 keepalive interval must be greater than zero"
-            );
-            anyhow::ensure!(
-                keepalive.timeout > Duration::ZERO,
-                "HTTP/2 keepalive timeout must be greater than zero"
-            );
-        }
+        anyhow::ensure!(
+            config.http2_keepalive.interval > Duration::ZERO,
+            "HTTP/2 keepalive interval must be greater than zero"
+        );
+        anyhow::ensure!(
+            config.http2_keepalive.timeout > Duration::ZERO,
+            "HTTP/2 keepalive timeout must be greater than zero"
+        );
 
         let connector = {
             let mut http = HttpConnector::new();
@@ -312,10 +285,11 @@ mod tests {
 
         let connection = handshake_proxy_connection(
             client_stream,
-            Some(Http2KeepAliveConfig {
+            Http2KeepAliveConfig {
+                enabled: true,
                 interval: Duration::from_millis(20),
                 timeout: Duration::from_millis(20),
-            }),
+            },
         )
         .await
         .unwrap();
@@ -329,7 +303,36 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn configured_keepalive_reconnects_without_waiting_for_a_request() {
+    async fn disabled_keepalive_does_not_close_an_unresponsive_http2_connection() {
+        let (client_stream, server_stream) = tokio::io::duplex(1024);
+        let server_task = tokio::spawn(async move {
+            let _connection = ::h2::server::handshake(server_stream).await.unwrap();
+
+            pending::<()>().await;
+        });
+
+        let connection = handshake_proxy_connection(
+            client_stream,
+            Http2KeepAliveConfig {
+                enabled: false,
+                interval: Duration::from_millis(20),
+                timeout: Duration::from_millis(20),
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), connection.closed)
+                .await
+                .is_err()
+        );
+
+        server_task.abort();
+    }
+
+    #[tokio::test]
+    async fn proxy_client_reconnects_without_waiting_for_a_request() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let proxy = format!("http://{}", listener.local_addr().unwrap())
             .parse()
@@ -360,10 +363,11 @@ mod tests {
         let client = ProxyClient::new(
             connector,
             proxy,
-            Some(Http2KeepAliveConfig {
+            Http2KeepAliveConfig {
+                enabled: true,
                 interval: Duration::from_secs(60),
                 timeout: Duration::from_secs(60),
-            }),
+            },
         );
 
         tokio::time::timeout(Duration::from_secs(1), first_connected)

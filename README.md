@@ -62,16 +62,23 @@ If omitted, Chaussette does not impose a local request timeout.
 ```
 --http2-keepalive-interval
 ```
-The number of seconds between HTTP/2 PING frames. Supplying this option together
-with `--http2-keepalive-timeout` enables keepalive while idle and eager recovery
-of the shared HTTP/2 proxy connection.
+The number of seconds between HTTP/2 PING frames. Chaussette enables keepalive
+while idle and eager recovery of the shared HTTP/2 proxy connection by default,
+with a 30-second interval and a 10-second timeout. Supplying this option
+overrides the default interval.
 
 ```
 --http2-keepalive-timeout
 ```
 The number of seconds to wait for an HTTP/2 PING acknowledgement before closing
-and eagerly re-establishing the shared proxy connection. This option requires
-`--http2-keepalive-interval`.
+and eagerly re-establishing the shared proxy connection. Supplying this option
+overrides the default 10-second timeout.
+
+```
+--disable-http2-keepalive
+```
+Disable HTTP/2 PING frames. Chaussette still eagerly establishes and recovers
+the shared HTTP/2 proxy connection after an observed close.
 
 ```
 --proxy_ca
